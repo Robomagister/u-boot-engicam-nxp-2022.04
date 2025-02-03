@@ -97,19 +97,22 @@
 	"fdt_addr=0x43000000\0"			\
 	"boot_fdt=try\0" \
 	"fdt_high=0xffffffffffffffff\0"		\
+	"bootdir=/boot\0" \
 	"boot_fit=no\0" \
-	"fdtfile=" CONFIG_DEFAULT_FDT_FILE "\0" \
+ 	"fdtfile=imx8mp-icore-fasteth-robomagister.dtb\0" \
 	"bootm_size=0x10000000\0" \
-	"mmcdev="__stringify(CONFIG_SYS_MMC_ENV_DEV)"\0" \
-	"mmcpart=1\0" \
+	"mmcdev=2\0" \
+	"mmcpart=2\0" \
 	"mmcroot=" CONFIG_MMCROOT " rootwait rw\0" \
 	"mmcautodetect=yes\0" \
-	"mmcargs=setenv bootargs ${jh_clk} ${mcore_clk} console=${console} root=${mmcroot} " CMA_VALUE "\0 " \
-	"loadbootscript=fatload mmc ${mmcdev}:${mmcpart} ${loadaddr} ${bsp_script};\0" \
+	"mmcargs=if test -e mmc ${mmcdev}:${mmcpart} /sbin/preinit; then setenv initarg init=/sbin/preinit; fi; " \
+		"setenv bootargs ${jh_clk} ${mcore_clk} console=${console} root=/dev/mmcblk${mmcdev}p${mmcpart} rootwait rw ${initarg} " CMA_VALUE "\0 " \
+	"loadbootscript=load mmc ${mmcdev}:${mmcpart} ${loadaddr} ${bootdir}/${bsp_script};\0" \
 	"bootscript=echo Running bootscript from mmc ...; " \
 		"source\0" \
-	"loadimage=fatload mmc ${mmcdev}:${mmcpart} ${loadaddr} ${image}\0" \
-	"loadfdt=fatload mmc ${mmcdev}:${mmcpart} ${fdt_addr_r} ${fdtfile}\0" \
+	"loadimage=load mmc ${mmcdev}:${mmcpart} ${loadaddr} ${bootdir}/${image}\0" \
+	"loadfdt=load mmc ${mmcdev}:${mmcpart} ${fdt_addr_r} ${bootdir}/${fdtfile}\0" \
+	"bootlimit=3\0" \
 	"mmcboot=echo Booting from mmc ...; " \
 		"run mmcargs; " \
 		"if test ${boot_fit} = yes || test ${boot_fit} = try; then " \
@@ -121,26 +124,16 @@
 				"echo WARN: Cannot load the DT; " \
 			"fi; " \
 		"fi;\0" \
-	"netargs=setenv bootargs ${jh_clk} ${mcore_clk} console=${console} " \
-		"root=/dev/nfs " \
-		"ip=dhcp nfsroot=${serverip}:${nfsroot},v3,tcp\0" \
-	"netboot=echo Booting from net ...; " \
-		"run netargs;  " \
-		"if test ${ip_dyn} = yes; then " \
-			"setenv get_cmd dhcp; " \
+	"restorebootcmd=echo Falling back to previous boot partition...;" \
+		"if test ${mmcpart} = 1; then "\
+			"setenv mmcpart 2; " \
 		"else " \
-			"setenv get_cmd tftp; " \
+			"setenv mmcpart 1; " \
 		"fi; " \
-		"${get_cmd} ${loadaddr} ${image}; " \
-		"if test ${boot_fit} = yes || test ${boot_fit} = try; then " \
-			"bootm ${loadaddr}; " \
-		"else " \
-			"if ${get_cmd} ${fdt_addr_r} ${fdtfile}; then " \
-				"booti ${loadaddr} - ${fdt_addr_r}; " \
-			"else " \
-				"echo WARN: Cannot load the DT; " \
-			"fi; " \
-		"fi;\0" \
+		"setenv upgrade_available 0; " \
+		"saveenv;\0" \
+	"altbootcmd=run restorebootcmd;" \
+		"run bootcmd\0" \
 	"bsp_bootcmd=echo Running BSP bootcmd ...; " \
 		"mmc dev ${mmcdev}; if mmc rescan; then " \
 		   "if run loadbootscript; then " \
@@ -148,7 +141,14 @@
 		   "else " \
 			   "if run loadimage; then " \
 				   "run mmcboot; " \
-			   "else run netboot; " \
+			   "else " \
+			   	   "if test ${upgrade_available} -gt 0; then " \
+			   	       "setexpr bootcount ${bootcount} + 1; " \
+				       "if test ${bootcount} -gt ${bootlimit}; then " \
+			               "run restorebootcmd; " \
+			           "fi; " \
+			       "fi; " \
+			       "boot; " \
 			   "fi; " \
 		   "fi; " \
 	   "fi;"
